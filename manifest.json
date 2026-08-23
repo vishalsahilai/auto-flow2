@@ -1,0 +1,67 @@
+{
+  "manifest_version": 3,
+  "name": "Auto Prompt",
+  "version": "14.5",
+  "version_name": "14.5 Flow + Drive",
+  "description": "Bulk image-generation automation for Google Flow with direct upload to Google Drive.",
+  "minimum_chrome_version": "116",
+
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtJukXJgqEPUYrs8wmOtLdEk6SPzVHJ9ceH4qlYFoYR+0ifgWEHY+VBuhCP0WJ6IZmJUhCveEfbkuGXprPmV22c4EQaPMs7uJIASkeUP+s6ym1vmLg/XcstlHHGXnWll5tH7OEms5eFaZNerhzj2nFJ4FFWTg8NskQ1APY98j/RDI6DatqyUimIZSaifkf4lZh0ETozLDoFVhg6mQO3tddkQP7DwOPJ7RmQGDhynSc6UPWSevbSVe9d4K+Vj3h5JQgGI2cf9mVIDc88ku/QHRDDIjuhOEr7NhkN35XDdfrt/RgWVmzW+6Yk2t9+pjRdh7/jkiEkrb5Um6/31318poKwIDAQAB",
+
+  "permissions": [
+    "storage",
+    "tabs",
+    "scripting",
+    "sidePanel",
+    "identity",
+    "alarms",
+    "debugger"
+  ],
+
+  "host_permissions": [
+    "https://labs.google/*",
+    "https://flow.google.com/*",
+    "https://*.googleusercontent.com/*",
+    "https://www.googleapis.com/*",
+    "https://oauth2.googleapis.com/*"
+  ],
+
+  "action": {
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "Open Auto Prompt"
+  },
+
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "content_scripts": [
+    {
+      "matches": [
+        "https://labs.google/*",
+        "https://flow.google.com/*"
+      ],
+      "js": [
+        "config.js",
+        "utils/composer.js",
+        "content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}

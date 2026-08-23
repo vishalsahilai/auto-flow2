@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Auto Prompt</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <img src="icons/icon48.png" alt="" class="brand-icon">
+    <div>
+      <div class="brand-name">Auto&nbsp;Prompt</div>
+      <div class="brand-sub" id="versionLabel">v14.5 · Flow → Drive</div>
+    </div>
+  </div>
+  <div class="status-chip" id="stateChip" data-state="IDLE">Idle</div>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button class="tab is-active" role="tab" data-tab="control">Control</button>
+  <button class="tab" role="tab" data-tab="queue">Queue</button>
+  <button class="tab" role="tab" data-tab="history">History</button>
+  <button class="tab" role="tab" data-tab="settings">Settings</button>
+  <button class="tab" role="tab" data-tab="logs">Logs</button>
+</nav>
+
+<div id="banner" class="banner hidden" role="status"></div>
+
+<main>
+
+<!-- ================= CONTROL ================= -->
+<section class="panel is-active" id="tab-control" role="tabpanel">
+
+  <div class="card">
+    <div class="card-title">Google Flow page</div>
+    <div class="row between">
+      <div class="mono small" id="flowTabInfo">Checking…</div>
+      <button class="btn ghost sm" id="openFlowBtn">Open Flow</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Mode</div>
+    <div class="seg" id="modeSeg">
+      <button class="seg-btn is-on" data-mode="text">Text&nbsp;→&nbsp;Image</button>
+      <button class="seg-btn" data-mode="image">Image&nbsp;→&nbsp;Image</button>
+    </div>
+
+    <div id="refBlock" class="sub hidden">
+      <div class="label">Reference image <span class="hint">used for every prompt, uploaded once</span></div>
+      <div class="row">
+        <label class="btn ghost sm">
+          Choose image
+          <input type="file" id="refInput" accept="image/*" hidden>
+        </label>
+        <button class="btn ghost sm" id="refRemoveBtn" disabled>Remove</button>
+      </div>
+      <div class="ref-preview hidden" id="refPreviewWrap">
+        <img id="refPreview" alt="Reference image preview">
+        <div class="mono small" id="refName"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Model</div>
+    <div class="pills" id="modelPills"></div>
+    <div class="card-title mt">Aspect ratio</div>
+    <div class="pills" id="ratioPills"></div>
+  </div>
+
+  <div class="card">
+    <div class="row between">
+      <div class="card-title">Prompts</div>
+      <div class="mono small" id="promptCount">0 prompts</div>
+    </div>
+    <p class="hint">Separate each prompt with <strong>two blank lines</strong>. A single blank line stays inside the same prompt.</p>
+    <textarea id="promptsBox" spellcheck="false" rows="9"
+      placeholder="A cinematic shot of a red fox in snow&#10;&#10;&#10;A macro photo of a dew-covered spider web"></textarea>
+    <div class="row wrap">
+      <label class="btn ghost sm">Import TXT<input type="file" id="txtInput" accept=".txt,text/plain" hidden></label>
+      <label class="btn ghost sm">Import PDF<input type="file" id="pdfInput" accept=".pdf,application/pdf" hidden></label>
+      <button class="btn ghost sm" id="parseBtn">Parse</button>
+      <button class="btn ghost sm danger" id="clearPromptsBtn">Clear</button>
+    </div>
+    <div id="promptPreview" class="preview hidden"></div>
+  </div>
+
+  <div class="card">
+    <div class="row between">
+      <div class="card-title">Google Drive</div>
+      <div class="chip" id="driveChip" data-on="false">Not connected</div>
+    </div>
+    <div class="row wrap">
+      <button class="btn primary sm" id="driveConnectBtn">Connect Google Drive</button>
+      <button class="btn ghost sm" id="driveDisconnectBtn">Disconnect</button>
+    </div>
+    <div class="label mt">Destination folder</div>
+    <div class="row wrap">
+      <select id="folderSelect" class="input grow"><option value="">Auto Prompt (default)</option></select>
+      <button class="btn ghost sm" id="folderRefreshBtn">Choose folder</button>
+    </div>
+    <div class="row wrap">
+      <input type="text" id="newFolderName" class="input grow" placeholder="New folder name">
+      <button class="btn ghost sm" id="folderCreateBtn">Create</button>
+    </div>
+    <div class="mono small mt" id="currentFolder">Current folder: Auto Prompt</div>
+    <div class="mono small" id="nextFileLabel">Next file: 001.jpg</div>
+  </div>
+
+  <div class="card sticky">
+    <div class="row wrap">
+      <button class="btn primary" id="startBtn">Start</button>
+      <button class="btn" id="pauseBtn" disabled>Pause</button>
+      <button class="btn" id="resumeBtn" disabled>Resume</button>
+      <button class="btn danger" id="stopBtn" disabled>Stop</button>
+    </div>
+    <div class="row wrap mt">
+      <button class="btn ghost sm" id="retryBtn" disabled>Retry current</button>
+      <button class="btn ghost sm" id="skipBtn" disabled>Skip current</button>
+      <button class="btn ghost sm" id="diagnoseBtn">Diagnose page</button>
+    </div>
+  </div>
+</section>
+
+<!-- ================= QUEUE ================= -->
+<section class="panel" id="tab-queue" role="tabpanel">
+  <div class="card">
+    <div class="row between">
+      <div class="card-title">Progress</div>
+      <div class="mono" id="queuePosition">Prompt 000 / 000</div>
+    </div>
+    <div class="bar"><div class="bar-fill" id="queueBar"></div></div>
+    <div class="stats">
+      <div class="stat"><span id="statTotal">0</span><label>Total</label></div>
+      <div class="stat"><span id="statDone">0</span><label>Uploaded</label></div>
+      <div class="stat"><span id="statFailed">0</span><label>Failed</label></div>
+      <div class="stat"><span id="statRetries">0</span><label>Retries</label></div>
+      <div class="stat"><span id="statSkipped">0</span><label>Skipped</label></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Current prompt</div>
+    <div class="mono small" id="currentPromptText">Nothing running.</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Queue</div>
+    <div id="queueList" class="list"><div class="empty">The queue is empty.</div></div>
+  </div>
+</section>
+
+<!-- ================= HISTORY ================= -->
+<section class="panel" id="tab-history" role="tabpanel">
+  <div class="card">
+    <div class="row between">
+      <div class="card-title">Saved to Google Drive</div>
+      <button class="btn ghost sm danger" id="clearHistoryBtn">Clear</button>
+    </div>
+    <div id="historyList" class="list"><div class="empty">Nothing has been generated yet.</div></div>
+  </div>
+</section>
+
+<!-- ================= SETTINGS ================= -->
+<section class="panel" id="tab-settings" role="tabpanel">
+  <div class="card">
+    <div class="card-title">Numbering</div>
+    <div class="field">
+      <label for="startNumber">Start number</label>
+      <input type="number" id="startNumber" class="input" min="1" max="999999" value="1">
+    </div>
+    <div class="field">
+      <label for="counterBehaviour">Numbering behaviour</label>
+      <select id="counterBehaviour" class="input">
+        <option value="continuous">Continue from the last number</option>
+        <option value="reset">Reset to the start number on every run</option>
+      </select>
+    </div>
+    <div class="row wrap">
+      <button class="btn ghost sm" id="applyStartBtn">Set counter</button>
+      <button class="btn ghost sm" id="resetCounterBtn">Reset counter</button>
+    </div>
+    <div class="mono small mt" id="counterInfo">Next file: 001.jpg</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Generation</div>
+    <div class="field">
+      <label for="maxRetries">Maximum retries per prompt</label>
+      <select id="maxRetries" class="input"></select>
+    </div>
+    <div class="field">
+      <label for="outputsPerPrompt">Outputs per prompt</label>
+      <input type="number" id="outputsPerPrompt" class="input" min="1" max="8" value="1">
+    </div>
+    <label class="check"><input type="checkbox" id="enforceImageMode" checked> Force Flow to Image output (never video)</label>
+    <label class="check"><input type="checkbox" id="applyAspectRatio" checked> Apply the aspect ratio in Flow</label>
+    <label class="check"><input type="checkbox" id="continueIfModelUnconfirmed" checked> If the model isn't in Flow's list, keep the model Flow already has</label>
+    <label class="check"><input type="checkbox" id="autoStart"> Auto-resume a run after the page reloads</label>
+    <label class="check"><input type="checkbox" id="pauseOnError" checked> Pause the queue on repeated errors</label>
+    <label class="check"><input type="checkbox" id="preserveQueue" checked> Keep the queue across reloads</label>
+    <label class="check"><input type="checkbox" id="debugMode"> Debug logging</label>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Maintenance</div>
+    <div class="row wrap">
+      <button class="btn ghost sm danger" id="clearDedupeBtn">Clear duplicate memory</button>
+      <button class="btn ghost sm danger" id="clearQueueBtn">Clear queue</button>
+    </div>
+    <div class="card-title mt">Setup details</div>
+    <div class="mono small" id="setupInfo"></div>
+  </div>
+</section>
+
+<!-- ================= LOGS ================= -->
+<section class="panel" id="tab-logs" role="tabpanel">
+  <div class="card">
+    <div class="row between">
+      <div class="card-title">Activity log</div>
+      <div class="row">
+        <button class="btn ghost sm" id="copyLogsBtn">Copy</button>
+        <button class="btn ghost sm" id="exportLogsBtn">Export</button>
+        <button class="btn ghost sm danger" id="clearLogsBtn">Clear</button>
+      </div>
+    </div>
+    <div class="row wrap" id="logFilters">
+      <button class="pill is-on" data-level="all">All</button>
+      <button class="pill" data-level="info">Info</button>
+      <button class="pill" data-level="success">Success</button>
+      <button class="pill" data-level="warn">Warn</button>
+      <button class="pill" data-level="error">Error</button>
+      <button class="pill" data-level="debug">Debug</button>
+    </div>
+    <div id="logList" class="log"><div class="empty">No log entries yet.</div></div>
+  </div>
+</section>
+
+</main>
+
+<script src="config.js"></script>
+<script src="utils/parser.js"></script>
+<script src="sidepanel.js"></script>
+</body>
+</html>
