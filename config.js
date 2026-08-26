@@ -20,7 +20,7 @@ var AP_CONFIG = {
     // See README section "One-time Google Cloud setup".
     // Authorised redirect URI to register:
     //   https://cpmepjhamnhjgojlkcmnopphmpcogbin.chromiumapp.org/
-    clientId: '858882040824-gltnfkdej1ll81gr5b32hfdjqh9appe2.apps.googleusercontent.com',
+    clientId: '',
 
     // Least-privilege Drive scope: the extension can only see and touch files
     // that the extension itself created. It can never read your other files.
