@@ -136,40 +136,36 @@ var APDrive = (function () {
   }
 
   /** Folders this extension has created — the choices offered in the panel. */
-  async function listFolders(parentId, opts) {
-    const parent = String(
-      parentId || 'root'
-    ).replace(/'/g, "\\'");
-
-    const q =
+  async function listFolders(opts) {
+    const query =
       "mimeType='" +
       D.folderMime +
-      "' and '" +
-      parent +
-      "' in parents and trashed=false";
+      "' and trashed=false";
 
-    const url =
-      D.apiBase +
-      '/files?q=' +
-      encodeURIComponent(q) +
-      '&fields=files(id,name,parents,createdTime)' +
-      '&pageSize=1000' +
-      '&orderBy=name' +
-      '&spaces=drive' +
-      '&corpora=user' +
-      '&supportsAllDrives=true' +
-      '&includeItemsFromAllDrives=true';
+    const params = new URLSearchParams({
+      q: query,
+      fields:
+        'files(id,name,parents,createdTime)',
+      pageSize: '1000',
+      orderBy: 'name',
+      spaces: 'drive',
+      corpora: 'user'
+    });
 
     const response = await authorizedFetch(
-      url,
-      { method: 'GET' },
+      D.apiBase +
+        '/files?' +
+        params.toString(),
+      {
+        method: 'GET'
+      },
       opts
     );
 
     if (!response.ok) {
       throw await asError(
         response,
-        'Listing your Drive folders'
+        'Listing your Google Drive folders'
       );
     }
 

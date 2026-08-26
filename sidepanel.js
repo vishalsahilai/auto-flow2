@@ -19,13 +19,6 @@
     logFilter: 'all',
     queue: null,
     refImage: null,
-    folderPath: [
-      {
-        id: 'root',
-        name: 'My Drive'
-      }
-    ],
-    folderLists: {}
   };
 
   /* ==================================================================== */
@@ -339,201 +332,94 @@
     if (res) showDrive(res.auth, null, null);
   });
 
-  function currentBrowserFolder() {
-    return UI.folderPath[
-      UI.folderPath.length - 1
-    ];
-  }
-
-  function renderFolderPath() {
-    const path = UI.folderPath.map(
-      function (folder) {
-        return folder.name;
-      }
-    ).join(' / ');
-
-    $('folderBrowserPath').textContent =
-      'Selected: ' + path;
-  }
-
-  async function loadFolderChildren(folder) {
+  async function refreshFolders() {
     const response = await bg(
       'DRIVE_LIST_FOLDERS',
-      {
-        parentId: folder.id
-      }
+      {}
     );
+
+    const select = $('folderSelect');
+    const current =
+      UI.env && UI.env.folder
+        ? UI.env.folder.id
+        : '';
+
+    select.innerHTML = '';
+
+    const defaultOption =
+      document.createElement('option');
+
+    defaultOption.value = '';
+    defaultOption.textContent =
+      (CFG.drive &&
+        CFG.drive.defaultFolderName) ||
+      'Auto Prompt';
+
+    select.appendChild(defaultOption);
 
     if (!response.ok) {
-      banner(response.error, 'error');
+      banner(
+        response.error ||
+          'Could not load Google Drive folders.',
+        'error'
+      );
 
-      UI.folderLists[folder.id] = [];
-
-      return false;
+      return;
     }
 
-    UI.folderLists[folder.id] =
-      response.folders || [];
+    const folders = response.folders || [];
 
-    return true;
-  }
+    folders.forEach(function (folder) {
+      const option =
+        document.createElement('option');
 
-  async function chooseFolderAtLevel(
-    level,
-    select
-  ) {
-    UI.folderPath =
-      UI.folderPath.slice(0, level + 1);
+      option.value = folder.id;
+      option.textContent = folder.name;
 
-    if (select.value) {
-      const folder = {
-        id: select.value,
-        name: select.options[
-          select.selectedIndex
-        ].textContent
-      };
-
-      UI.folderPath.push(folder);
-
-      await loadFolderChildren(folder);
-    }
-
-    renderFolderCascade();
-  }
-
-  function renderFolderCascade() {
-    const container = $('folderCascade');
-
-    container.innerHTML = '';
-
-    UI.folderPath.forEach(
-      function (parent, level) {
-        const folders =
-          UI.folderLists[parent.id] || [];
-
-        if (!folders.length) return;
-
-        const field =
-          document.createElement('div');
-
-        field.className = 'field mt';
-
-        const label =
-          document.createElement('label');
-
-        label.textContent =
-          level === 0
-            ? 'Folder in My Drive'
-            : 'Folder inside ' + parent.name;
-
-        const select =
-          document.createElement('select');
-
-        select.className = 'input';
-        select.dataset.level = String(level);
-
-        const placeholder =
-          document.createElement('option');
-
-        placeholder.value = '';
-        placeholder.textContent =
-          'Use ' + parent.name;
-
-        select.appendChild(placeholder);
-
-        const selectedChild =
-          UI.folderPath[level + 1];
-
-        folders.forEach(function (folder) {
-          const option =
-            document.createElement('option');
-
-          option.value = folder.id;
-          option.textContent = folder.name;
-
-          option.selected =
-            !!selectedChild &&
-            selectedChild.id === folder.id;
-
-          select.appendChild(option);
-        });
-
-        select.addEventListener(
-          'change',
-          function () {
-            chooseFolderAtLevel(
-              level,
-              select
-            );
-          }
-        );
-
-        field.appendChild(label);
-        field.appendChild(select);
-        container.appendChild(field);
+      if (folder.id === current) {
+        option.selected = true;
       }
-    );
 
-    renderFolderPath();
-  }
+      select.appendChild(option);
+    });
 
-  async function refreshFolders(reset) {
-    if (reset) {
-      UI.folderPath = [
-        {
-          id: 'root',
-          name: 'My Drive'
-        }
-      ];
-
-      UI.folderLists = {};
+    if (!folders.length) {
+      banner(
+        'Google Drive returned no visible folders.',
+        'warn'
+      );
     }
-
-    for (const folder of UI.folderPath) {
-      const loaded =
-        await loadFolderChildren(folder);
-
-      if (!loaded) break;
-    }
-
-    renderFolderCascade();
   }
 
   $('folderRefreshBtn').addEventListener(
     'click',
     async function () {
-      await refreshFolders(false);
-
-      banner(
-        'Folder list refreshed.',
-        'info'
-      );
+      await refreshFolders();
     }
   );
 
-  $('folderUseBtn').addEventListener(
-    'click',
+  $('folderSelect').addEventListener(
+    'change',
     async function () {
-      const folder =
-        currentBrowserFolder();
-
-      const path = UI.folderPath.map(
-        function (item) {
-          return item.name;
-        }
-      ).join(' / ');
+      const id = this.value;
+      const name =
+        this.options[this.selectedIndex]
+          .textContent;
 
       const response = await call(
         'DRIVE_SELECT_FOLDER',
-        {
-          folder: {
-            id: folder.id,
-            name: folder.name,
-            path: path
-          }
-        },
+        id
+          ? {
+              folder: {
+                id: id,
+                name: name
+              }
+            }
+          : {
+              name: name
+            },
         'Destination folder selected: ' +
-        path
+          name
       );
 
       if (response) {
@@ -547,6 +433,45 @@
       }
     }
   );
+
+  $('folderCreateBtn').addEventListener(
+    'click',
+    async function () {
+      const name =
+        $('newFolderName').value.trim();
+
+      if (!name) {
+        banner(
+          'Type a name for the new folder first.',
+          'warn'
+        );
+
+        return;
+      }
+
+      const response = await call(
+        'DRIVE_CREATE_FOLDER',
+        {
+          name: name
+        },
+        'Created "' + name + '".'
+      );
+
+      if (response) {
+        $('newFolderName').value = '';
+        UI.env.folder = response.folder;
+
+        showDrive(
+          UI.env.auth,
+          response.folder,
+          response.folderLink
+        );
+
+        await refreshFolders();
+      }
+    }
+  );
+  
 
   $('folderCreateBtn').addEventListener(
     'click',
@@ -1022,7 +947,7 @@
     [['Extension ID', res.extensionId],
      ['OAuth redirect URI', res.redirectUri],
      ['OAuth client ID', res.auth.configured ? 'configured' : 'NOT SET — see README'],
-     ['Drive scope', 'drive.file (least privilege)']
+     ['Drive scope', res.auth.scope || 'not granted']
     ].forEach(function (p) {
       const d = document.createElement('div');
       d.textContent = p[0] + ': ' + p[1];

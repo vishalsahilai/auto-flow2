@@ -260,12 +260,9 @@ const handlers = {
     return { auth: auth, folder: folder, folderLink: folder && folder.id ? APDrive.folderLink(folder.id) : null };
   },
 
-  async DRIVE_LIST_FOLDERS(msg) {
+  async DRIVE_LIST_FOLDERS() {
     return {
-      folders: await APDrive.listFolders(
-        msg.parentId || 'root',
-        {}
-      )
+      folders: await APDrive.listFolders({})
     };
   },
 

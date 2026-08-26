@@ -100,19 +100,13 @@
     </div>
     <div class="label mt">Destination folder</div>
 
-    <div id="folderCascade"></div>
-
-    <div class="mono small mt" id="folderBrowserPath">
-      Selected: My Drive
-    </div>
-
     <div class="row wrap">
-      <button class="btn primary sm" id="folderUseBtn">
-        Use this folder
-      </button>
+      <select id="folderSelect" class="input grow">
+        <option value="">Auto Prompt (default)</option>
+      </select>
 
       <button class="btn ghost sm" id="folderRefreshBtn">
-        Refresh
+        Choose folder
       </button>
     </div>
 
@@ -128,7 +122,14 @@
         Create
       </button>
     </div>
-    <div class="mono small" id="nextFileLabel">Next file: 001.jpg</div>
+
+    <div class="mono small mt" id="currentFolder">
+      Current folder: Auto Prompt
+    </div>
+
+    <div class="mono small" id="nextFileLabel">
+      Next file: 001.jpg
+    </div>
   </div>
 
   <div class="card sticky">

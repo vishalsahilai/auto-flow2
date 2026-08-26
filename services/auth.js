@@ -1,34 +1,22 @@
-/* ============================================================================
- * services/auth.js — Auto Prompt v14
- * ----------------------------------------------------------------------------
- * Google OAuth for the extension, using chrome.identity.launchWebAuthFlow with
- * the implicit (token) flow. No client secret is embedded, no password is ever
- * requested or stored, and the token is never shown in the UI.
- *
- * Works with whichever Google account the user picks at consent time, so the
- * extension is portable across Chrome profiles — nothing is hard-coded.
- *
- * Exposes: globalThis.APAuth
- * ==========================================================================*/
-
 var APAuth = (function () {
   'use strict';
 
-  const CFG = (typeof AP_CONFIG !== 'undefined') ? AP_CONFIG : (globalThis.AP_CONFIG || {});
+  const CFG = typeof AP_CONFIG !== 'undefined'
+    ? AP_CONFIG
+    : globalThis.AP_CONFIG || {};
   const O = CFG.oauth || {};
-  const KEY = (CFG.storageKeys && CFG.storageKeys.driveToken) || 'driveToken';
+  const KEY = CFG.storageKeys && CFG.storageKeys.driveToken
+    ? CFG.storageKeys.driveToken
+    : 'driveToken';
 
-  /* Serialise token acquisition: several uploads finishing at once must not each
-   * launch their own consent window. */
   let inflight = null;
 
   function redirectUri() {
-    // Deterministic because manifest.json pins the extension `key`.
     return chrome.identity.getRedirectURL();
   }
 
   function clientId() {
-    return (O.clientId || '').trim();
+    return String(O.clientId || '').trim();
   }
 
   function isConfigured() {
@@ -37,49 +25,91 @@ var APAuth = (function () {
 
   function configError() {
     return new Error(
-      'Google Drive is not configured yet. Open config.js and paste your OAuth ' +
-      'client ID into AP_CONFIG.oauth.clientId, then reload the extension. ' +
-      'The redirect URI to register in Google Cloud is: ' + redirectUri()
+      'Google Drive is not configured. Add your OAuth client ID to AP_CONFIG.oauth.clientId in config.js, reload the extension, and register this redirect URI in Google Cloud: ' +
+      redirectUri()
     );
   }
 
-  /* ---------------------------------------------------------------- */
-  /*  TOKEN CACHE                                                     */
-  /* ---------------------------------------------------------------- */
-  function readCached() {
+  function storageGet() {
     return new Promise(function (resolve) {
       chrome.storage.local.get([KEY], function (data) {
         void chrome.runtime.lastError;
-        resolve((data && data[KEY]) || null);
+        resolve(data && data[KEY] ? data[KEY] : null);
       });
     });
   }
 
-  function writeCached(tok) {
-    return new Promise(function (resolve) {
-      chrome.storage.local.set({ [KEY]: tok }, function () { void chrome.runtime.lastError; resolve(); });
+  function storageSet(token) {
+    return new Promise(function (resolve, reject) {
+      chrome.storage.local.set({ [KEY]: token }, function () {
+        const error = chrome.runtime.lastError;
+        if (error) {
+          reject(new Error(error.message));
+          return;
+        }
+        resolve();
+      });
     });
   }
 
-  function clearCached() {
+  function storageClear() {
     return new Promise(function (resolve) {
-      chrome.storage.local.remove([KEY], function () { void chrome.runtime.lastError; resolve(); });
+      chrome.storage.local.remove([KEY], function () {
+        void chrome.runtime.lastError;
+        resolve();
+      });
     });
   }
 
-  function isFresh(tok) {
-    if (!tok || !tok.accessToken || !tok.expiresAt) return false;
-    const skew = O.refreshSkewMs === undefined ? 300000 : O.refreshSkewMs;
-    return Date.now() < (tok.expiresAt - skew);
+  function requiredScopes() {
+    return (O.scopes || [])
+      .map(function (scope) {
+        return String(scope).trim();
+      })
+      .filter(Boolean);
   }
 
-  /* ---------------------------------------------------------------- */
-  /*  AUTH URL                                                        */
-  /* ---------------------------------------------------------------- */
+  function hasRequiredScopes(token) {
+    if (!token || !token.scope) return false;
+
+    const granted = new Set(
+      String(token.scope)
+        .split(/\s+/)
+        .map(function (scope) {
+          return scope.trim();
+        })
+        .filter(Boolean)
+    );
+
+    const required = requiredScopes();
+    return required.length > 0 && required.every(function (scope) {
+      return granted.has(scope);
+    });
+  }
+
+  function isFresh(token) {
+    if (
+      !token ||
+      !token.accessToken ||
+      !token.expiresAt ||
+      !hasRequiredScopes(token)
+    ) {
+      return false;
+    }
+
+    const skew = O.refreshSkewMs === undefined
+      ? 300000
+      : Number(O.refreshSkewMs);
+
+    return Date.now() < token.expiresAt - (Number.isFinite(skew) ? skew : 300000);
+  }
+
   function randomState() {
-    const buf = new Uint8Array(16);
-    crypto.getRandomValues(buf);
-    return Array.from(buf).map(function (b) { return b.toString(16).padStart(2, '0'); }).join('');
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, function (byte) {
+      return byte.toString(16).padStart(2, '0');
+    }).join('');
   }
 
   function buildAuthUrl(state, promptMode, loginHint) {
@@ -87,142 +117,158 @@ var APAuth = (function () {
       client_id: clientId(),
       redirect_uri: redirectUri(),
       response_type: 'token',
-      scope: (O.scopes || []).join(' '),
+      scope: requiredScopes().join(' '),
       state: state,
       include_granted_scopes: 'true',
       enable_granular_consent: 'true'
     });
+
     if (promptMode) params.set('prompt', promptMode);
     if (loginHint) params.set('login_hint', loginHint);
-    return (O.authEndpoint || 'https://accounts.google.com/o/oauth2/v2/auth') + '?' + params.toString();
+
+    return (
+      O.authEndpoint ||
+      'https://accounts.google.com/o/oauth2/v2/auth'
+    ) + '?' + params.toString();
   }
 
   function launch(url, interactive) {
     return new Promise(function (resolve, reject) {
-      chrome.identity.launchWebAuthFlow({ url: url, interactive: !!interactive }, function (responseUrl) {
-        const err = chrome.runtime.lastError;
-        if (err || !responseUrl) {
-          reject(new Error(err && err.message ? err.message : 'Authorisation window was closed.'));
-          return;
+      chrome.identity.launchWebAuthFlow(
+        { url: url, interactive: Boolean(interactive) },
+        function (responseUrl) {
+          const error = chrome.runtime.lastError;
+
+          if (error || !responseUrl) {
+            reject(new Error(
+              error && error.message
+                ? error.message
+                : 'The authorization window was closed.'
+            ));
+            return;
+          }
+
+          resolve(responseUrl);
         }
-        resolve(responseUrl);
-      });
+      );
     });
   }
 
-  /** Parse the #fragment Google appends to the redirect URI. */
+  function describeOauthError(code, description) {
+    const detail = description
+      ? decodeURIComponent(String(description).replace(/\+/g, ' '))
+      : '';
+
+    switch (code) {
+      case 'access_denied':
+        return 'You declined the Google Drive permission request. Auto Prompt needs full Drive access to list folders and save images.';
+      case 'redirect_uri_mismatch':
+        return 'Google rejected the redirect URI. Add this exact URI to your OAuth client in Google Cloud: ' + redirectUri();
+      case 'invalid_client':
+        return 'Google rejected the OAuth client ID. AP_CONFIG.oauth.clientId must contain a valid Web application client ID.';
+      case 'invalid_scope':
+        return 'Google rejected the Drive scope. Enable the Google Drive API for your Google Cloud project.';
+      case 'interaction_required':
+      case 'login_required':
+      case 'consent_required':
+        return 'Google needs you to sign in and approve Drive access again.';
+      default:
+        return 'Google sign-in failed' +
+          (code ? ' (' + code + ')' : '') +
+          (detail ? ': ' + detail : '.');
+    }
+  }
+
   function parseRedirect(responseUrl, expectedState) {
-    const hashIndex = responseUrl.indexOf('#');
-    const queryIndex = responseUrl.indexOf('?');
+    const url = new URL(responseUrl);
+    const values = url.hash
+      ? new URLSearchParams(url.hash.slice(1))
+      : url.searchParams;
+    const error = values.get('error');
 
-    // Errors come back on the query string, tokens on the fragment.
-    if (hashIndex === -1 && queryIndex !== -1) {
-      const q = new URLSearchParams(responseUrl.slice(queryIndex + 1));
-      throw new Error(describeOauthError(q.get('error'), q.get('error_description')));
-    }
-    if (hashIndex === -1) throw new Error('Google did not return an access token.');
-
-    const frag = new URLSearchParams(responseUrl.slice(hashIndex + 1));
-    const error = frag.get('error');
-    if (error) throw new Error(describeOauthError(error, frag.get('error_description')));
-
-    const returnedState = frag.get('state');
-    if (expectedState && returnedState !== expectedState) {
-      throw new Error('Authorisation failed a security check (state mismatch). Please try connecting again.');
+    if (error) {
+      throw new Error(
+        describeOauthError(error, values.get('error_description'))
+      );
     }
 
-    const accessToken = frag.get('access_token');
-    if (!accessToken) throw new Error('Google did not return an access token.');
+    if (!url.hash) {
+      throw new Error('Google did not return an access token.');
+    }
 
-    const expiresIn = parseInt(frag.get('expires_in'), 10);
-    const grantedScope = frag.get('scope') || (O.scopes || []).join(' ');
+    if (expectedState && values.get('state') !== expectedState) {
+      throw new Error(
+        'Authorization failed the security state check. Connect Google Drive again.'
+      );
+    }
+
+    const accessToken = values.get('access_token');
+    if (!accessToken) {
+      throw new Error('Google did not return an access token.');
+    }
+
+    const expiresIn = Number.parseInt(values.get('expires_in'), 10);
 
     return {
       accessToken: accessToken,
-      tokenType: frag.get('token_type') || 'Bearer',
-      expiresAt: Date.now() + ((isNaN(expiresIn) ? 3600 : expiresIn) * 1000),
-      scope: grantedScope,
+      tokenType: values.get('token_type') || 'Bearer',
+      expiresAt: Date.now() + (Number.isFinite(expiresIn) ? expiresIn : 3600) * 1000,
+      scope: values.get('scope') || requiredScopes().join(' '),
       obtainedAt: Date.now()
     };
   }
 
-  function describeOauthError(code, description) {
-    switch (code) {
-      case 'access_denied':
-        return 'You declined the Google Drive permission request. Auto Prompt needs it to save your images.';
-      case 'redirect_uri_mismatch':
-        return 'Google rejected the redirect URI. Add exactly this URI to your OAuth client in Google Cloud: ' + redirectUri();
-      case 'invalid_client':
-        return 'That OAuth client ID was not accepted by Google. Check AP_CONFIG.oauth.clientId in config.js — it must be a "Web application" client.';
-      case 'invalid_scope':
-        return 'The requested Drive scope was rejected. Make sure the Google Drive API is enabled for your Cloud project.';
-      case 'interaction_required':
-      case 'login_required':
-      case 'consent_required':
-        return 'Google needs you to sign in again.';
-      default:
-        return 'Google sign-in failed' + (code ? ' (' + code + ')' : '') +
-               (description ? ': ' + decodeURIComponent(description.replace(/\+/g, ' ')) : '.');
+  async function validateAndStore(token) {
+    if (!hasRequiredScopes(token)) {
+      await storageClear();
+      throw new Error(
+        'The full Google Drive permission was not granted. Disconnect Google Drive, reconnect it, and approve the requested Drive access.'
+      );
     }
+
+    await storageSet(token);
+    return token.accessToken;
   }
 
-  /* ---------------------------------------------------------------- */
-  /*  PUBLIC API                                                      */
-  /* ---------------------------------------------------------------- */
+  async function requestToken(interactive, promptMode) {
+    const state = randomState();
+    const responseUrl = await launch(
+      buildAuthUrl(state, promptMode),
+      interactive
+    );
+    const token = parseRedirect(responseUrl, state);
+    return validateAndStore(token);
+  }
 
-  /**
-   * Return a usable access token.
-   *   getToken()                  -> cached, else silent, else throws
-   *   getToken({interactive:true})-> cached, else silent, else shows consent UI
-   *   getToken({forceInteractive:true}) -> always shows the account chooser
-   */
-  async function getToken(opts) {
-    opts = opts || {};
+  async function getToken(options) {
+    const opts = options || {};
+
     if (!isConfigured()) throw configError();
 
     if (!opts.forceInteractive) {
-      const cached = await readCached();
+      const cached = await storageGet();
       if (isFresh(cached)) return cached.accessToken;
     }
 
     if (inflight) return inflight;
 
     inflight = (async function () {
-      // 1) Silent attempt — works whenever the user already has a Google session
-      //    and has previously granted the scope.
       if (!opts.forceInteractive) {
         try {
-          const state = randomState();
-          const url = buildAuthUrl(state, 'none');
-          const res = await launch(url, false);
-          const tok = parseRedirect(res, state);
-          await writeCached(tok);
-          return tok.accessToken;
-        } catch (e) {
+          return await requestToken(false, 'none');
+        } catch (error) {
           if (!opts.interactive) {
-            await clearCached();
-            const err = new Error('Google Drive is not connected. Open the Auto Prompt panel and click "Connect Google Drive".');
-            err.needsInteractive = true;
-            throw err;
+            await storageClear();
+            const connectionError = new Error(
+              'Google Drive is not connected. Open Auto Prompt and click Connect Google Drive.'
+            );
+            connectionError.needsInteractive = true;
+            throw connectionError;
           }
         }
       }
 
-      // 2) Interactive attempt — account chooser so multi-account profiles work.
-      const state = randomState();
-      const url = buildAuthUrl(state, 'select_account consent');
-      const res = await launch(url, true);
-      const tok = parseRedirect(res, state);
-
-      // Verify the scope we actually need was granted (granular consent can drop it).
-      const needed = (O.scopes || [])[0];
-      if (needed && tok.scope && tok.scope.indexOf(needed) === -1) {
-        await clearCached();
-        throw new Error('The Google Drive permission was not granted. Please tick the Drive checkbox on the consent screen and try again.');
-      }
-
-      await writeCached(tok);
-      return tok.accessToken;
+      return requestToken(true, 'select_account consent');
     })();
 
     try {
@@ -232,33 +278,47 @@ var APAuth = (function () {
     }
   }
 
-  /** Force the consent/account-chooser flow. Used by the Connect button. */
   function connect() {
-    return getToken({ interactive: true, forceInteractive: true });
+    return getToken({
+      interactive: true,
+      forceInteractive: true
+    });
   }
 
-  /** Invalidate a token Google has rejected, so the next call re-authorises. */
   async function invalidate() {
-    await clearCached();
+    await storageClear();
   }
 
-  /** Revoke at Google, then forget locally. */
   async function signOut() {
-    const cached = await readCached();
-    await clearCached();
-    if (cached && cached.accessToken) {
-      try {
-        await fetch((O.revokeEndpoint || 'https://oauth2.googleapis.com/revoke') +
-                    '?token=' + encodeURIComponent(cached.accessToken), { method: 'POST' });
-      } catch (e) { /* best effort — local state is already cleared */ }
+    const cached = await storageGet();
+    await storageClear();
+
+    if (!cached || !cached.accessToken) return;
+
+    try {
+      await fetch(
+        (O.revokeEndpoint || 'https://oauth2.googleapis.com/revoke') +
+          '?token=' + encodeURIComponent(cached.accessToken),
+        { method: 'POST' }
+      );
+    } catch (error) {
+      void error;
     }
   }
 
   async function status() {
-    const cached = await readCached();
+    const cached = await storageGet();
+    const configured = isConfigured();
+    const validScope = hasRequiredScopes(cached);
+
     return {
-      configured: isConfigured(),
-      connected: !!(cached && cached.accessToken),
+      configured: configured,
+      connected: Boolean(
+        configured &&
+        cached &&
+        cached.accessToken &&
+        validScope
+      ),
       fresh: isFresh(cached),
       expiresAt: cached ? cached.expiresAt : null,
       scope: cached ? cached.scope : null,
@@ -278,4 +338,6 @@ var APAuth = (function () {
   };
 })();
 
-if (typeof globalThis !== 'undefined') globalThis.APAuth = APAuth;
+if (typeof globalThis !== 'undefined') {
+  globalThis.APAuth = APAuth;
+}
