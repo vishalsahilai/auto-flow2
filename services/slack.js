@@ -147,6 +147,19 @@ var APSlack = (function () {
 
     const error = item.error || state.lastError || '';
 
+    const unusualActivity =
+      /unusual activity|help center/i.test(error);
+
+    if (unusualActivity) {
+      return sendOnce(
+        'unusual-activity:' + state.index,
+        ':rotating_light: *Google Flow blocked image generation*\n' +
+        '*Prompt:* ' + promptNumber + '\n' +
+        '*Error:* ' + error + '\n' +
+        'Google detected unusual activity. The queue has been paused. Please check Google Flow before resuming.'
+      );
+    }
+
     if (state.state === 'UPLOAD_FAILED' && error) {
       return sendOnce(
         'upload:' + state.index,

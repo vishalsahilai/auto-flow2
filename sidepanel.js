@@ -19,12 +19,13 @@
     logFilter: 'all',
     queue: null,
     refImage: null,
-    folderStack: [
+    folderPath: [
       {
         id: 'root',
         name: 'My Drive'
       }
-    ]
+    ],
+    folderLists: {}
   };
 
   /* ==================================================================== */
@@ -339,115 +340,184 @@
   });
 
   function currentBrowserFolder() {
-    return UI.folderStack[
-      UI.folderStack.length - 1
+    return UI.folderPath[
+      UI.folderPath.length - 1
     ];
   }
 
   function renderFolderPath() {
-    const path = UI.folderStack.map(function (folder) {
-      return folder.name;
-    }).join(' / ');
+    const path = UI.folderPath.map(
+      function (folder) {
+        return folder.name;
+      }
+    ).join(' / ');
 
     $('folderBrowserPath').textContent =
-      'Browsing: ' + path;
-
-    $('folderUpBtn').disabled =
-      UI.folderStack.length <= 1;
+      'Selected: ' + path;
   }
 
-  async function refreshFolders() {
-    const currentFolder = currentBrowserFolder();
-
+  async function loadFolderChildren(folder) {
     const response = await bg(
       'DRIVE_LIST_FOLDERS',
       {
-        parentId: currentFolder.id
+        parentId: folder.id
       }
     );
 
-    const select = $('folderSelect');
-    select.innerHTML = '';
-
     if (!response.ok) {
       banner(response.error, 'error');
-      renderFolderPath();
-      return;
+
+      UI.folderLists[folder.id] = [];
+
+      return false;
     }
 
-    const folders = response.folders || [];
+    UI.folderLists[folder.id] =
+      response.folders || [];
 
-    if (!folders.length) {
-      const empty = document.createElement('option');
-
-      empty.value = '';
-      empty.textContent = 'No subfolders';
-
-      select.appendChild(empty);
-    }
-
-    folders.forEach(function (folder) {
-      const option = document.createElement('option');
-
-      option.value = folder.id;
-      option.textContent = folder.name;
-
-      select.appendChild(option);
-    });
-
-    renderFolderPath();
+    return true;
   }
 
-  $('folderRefreshBtn').addEventListener(
-    'click',
-    function () {
-      refreshFolders();
-      banner('Folder list refreshed.', 'info');
-    }
-  );
+  async function chooseFolderAtLevel(
+    level,
+    select
+  ) {
+    UI.folderPath =
+      UI.folderPath.slice(0, level + 1);
 
-  $('folderOpenBtn').addEventListener(
-    'click',
-    async function () {
-      const select = $('folderSelect');
-
-      if (!select.value) {
-        banner(
-          'This folder has no subfolders to open.',
-          'warn'
-        );
-
-        return;
-      }
-
-      UI.folderStack.push({
+    if (select.value) {
+      const folder = {
         id: select.value,
         name: select.options[
           select.selectedIndex
         ].textContent
-      });
+      };
 
-      await refreshFolders();
+      UI.folderPath.push(folder);
+
+      await loadFolderChildren(folder);
     }
-  );
 
-  $('folderUpBtn').addEventListener(
+    renderFolderCascade();
+  }
+
+  function renderFolderCascade() {
+    const container = $('folderCascade');
+
+    container.innerHTML = '';
+
+    UI.folderPath.forEach(
+      function (parent, level) {
+        const folders =
+          UI.folderLists[parent.id] || [];
+
+        if (!folders.length) return;
+
+        const field =
+          document.createElement('div');
+
+        field.className = 'field mt';
+
+        const label =
+          document.createElement('label');
+
+        label.textContent =
+          level === 0
+            ? 'Folder in My Drive'
+            : 'Folder inside ' + parent.name;
+
+        const select =
+          document.createElement('select');
+
+        select.className = 'input';
+        select.dataset.level = String(level);
+
+        const placeholder =
+          document.createElement('option');
+
+        placeholder.value = '';
+        placeholder.textContent =
+          'Use ' + parent.name;
+
+        select.appendChild(placeholder);
+
+        const selectedChild =
+          UI.folderPath[level + 1];
+
+        folders.forEach(function (folder) {
+          const option =
+            document.createElement('option');
+
+          option.value = folder.id;
+          option.textContent = folder.name;
+
+          option.selected =
+            !!selectedChild &&
+            selectedChild.id === folder.id;
+
+          select.appendChild(option);
+        });
+
+        select.addEventListener(
+          'change',
+          function () {
+            chooseFolderAtLevel(
+              level,
+              select
+            );
+          }
+        );
+
+        field.appendChild(label);
+        field.appendChild(select);
+        container.appendChild(field);
+      }
+    );
+
+    renderFolderPath();
+  }
+
+  async function refreshFolders(reset) {
+    if (reset) {
+      UI.folderPath = [
+        {
+          id: 'root',
+          name: 'My Drive'
+        }
+      ];
+
+      UI.folderLists = {};
+    }
+
+    for (const folder of UI.folderPath) {
+      const loaded =
+        await loadFolderChildren(folder);
+
+      if (!loaded) break;
+    }
+
+    renderFolderCascade();
+  }
+
+  $('folderRefreshBtn').addEventListener(
     'click',
     async function () {
-      if (UI.folderStack.length > 1) {
-        UI.folderStack.pop();
-      }
+      await refreshFolders(false);
 
-      await refreshFolders();
+      banner(
+        'Folder list refreshed.',
+        'info'
+      );
     }
   );
 
   $('folderUseBtn').addEventListener(
     'click',
     async function () {
-      const folder = currentBrowserFolder();
+      const folder =
+        currentBrowserFolder();
 
-      const path = UI.folderStack.map(
+      const path = UI.folderPath.map(
         function (item) {
           return item.name;
         }
@@ -462,7 +532,8 @@
             path: path
           }
         },
-        'Destination folder selected: ' + path
+        'Destination folder selected: ' +
+        path
       );
 
       if (response) {
@@ -480,7 +551,8 @@
   $('folderCreateBtn').addEventListener(
     'click',
     async function () {
-      const name = $('newFolderName').value.trim();
+      const name =
+        $('newFolderName').value.trim();
 
       if (!name) {
         banner(
@@ -491,13 +563,15 @@
         return;
       }
 
-      const parent = currentBrowserFolder();
+      const parent =
+        currentBrowserFolder();
 
-      const parentPath = UI.folderStack.map(
-        function (item) {
-          return item.name;
-        }
-      ).join(' / ');
+      const parentPath =
+        UI.folderPath.map(
+          function (item) {
+            return item.name;
+          }
+        ).join(' / ');
 
       const response = await call(
         'DRIVE_CREATE_FOLDER',
@@ -511,6 +585,7 @@
 
       if (response) {
         $('newFolderName').value = '';
+
         UI.env.folder = response.folder;
 
         showDrive(
@@ -519,7 +594,18 @@
           response.folderLink
         );
 
-        refreshFolders();
+        UI.folderPath.push({
+          id: response.folder.id,
+          name: response.folder.name
+        });
+
+        UI.folderLists[
+          response.folder.id
+        ] = [];
+
+        await loadFolderChildren(parent);
+
+        renderFolderCascade();
       }
     }
   );

@@ -485,31 +485,135 @@
 
   function findFailureElements() {
     const out = [];
-    const seen = [];
-    const phrases = CFG.failureTexts || [];
-    const maxLen = CFG.failureTextMaxLength || 200;
+    const seen = new Set();
 
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
-    let node;
-    while ((node = walker.nextNode())) {
-      const raw = node.nodeValue;
-      if (!raw || raw.length > maxLen) continue;
-      const t = norm(raw);
-      if (!t) continue;
-      let phrase = null;
-      for (const p of phrases) if (t.indexOf(p) !== -1) { phrase = p; break; }
-      if (!phrase) continue;
-      const el = node.parentElement;
-      if (!el || !isVisible(el)) continue;
-      if (seen.indexOf(el) !== -1) continue;
-      seen.push(el);
+    const phrases = (
+      CFG.failureTexts || []
+    ).map(norm).filter(Boolean);
+
+    const maxLen =
+      CFG.failureTextMaxLength || 200;
+
+    function matchedPhrase(text) {
+      const normalized = norm(text);
+
+      if (!normalized) return null;
+
+      for (const phrase of phrases) {
+        if (
+          normalized.indexOf(phrase) !== -1
+        ) {
+          return phrase;
+        }
+      }
+
+      return null;
+    }
+
+    function addFailure(element, sourceText) {
+      if (
+        !element ||
+        !isVisible(element)
+      ) {
+        return;
+      }
+
+      const phrase = matchedPhrase(sourceText);
+
+      if (!phrase) return;
+
+      let target = element;
+      let text = norm(sourceText);
+
+      for (
+        let i = 0;
+        i < 3 && target.parentElement;
+        i++
+      ) {
+        const parent = target.parentElement;
+
+        const parentText = norm(
+          parent.innerText ||
+          parent.textContent
+        );
+
+        if (
+          !parentText ||
+          parentText.length > maxLen * 3
+        ) {
+          break;
+        }
+
+        target = parent;
+        text = parentText;
+      }
+
+      if (seen.has(target)) return;
+
+      seen.add(target);
+
       out.push({
-        el: el,
-        text: norm(el.innerText || el.textContent).slice(0, 180),
+        el: target,
+        text: text.slice(0, maxLen * 3),
         phrase: phrase,
-        where: JSON.stringify(describe(el))
+        where: JSON.stringify(
+          describe(target)
+        )
       });
     }
+
+    const walker = document.createTreeWalker(
+      document.body,
+      NodeFilter.SHOW_TEXT,
+      null
+    );
+
+    let node;
+
+    while (
+      (node = walker.nextNode())
+    ) {
+      const raw = node.nodeValue;
+
+      if (
+        !raw ||
+        !matchedPhrase(raw)
+      ) {
+        continue;
+      }
+
+      addFailure(
+        node.parentElement,
+        raw
+      );
+    }
+
+    const semantic =
+      document.querySelectorAll(
+        '[role="alert"],' +
+        '[aria-live],' +
+        '[aria-label],' +
+        '[title],' +
+        '[data-state="error"],' +
+        '[data-status="error"]'
+      );
+
+    for (const element of semantic) {
+      if (!isVisible(element)) continue;
+
+      const text = [
+        element.getAttribute('aria-label') || '',
+        element.getAttribute('title') || '',
+        element.innerText ||
+        element.textContent ||
+        ''
+      ].join(' ');
+
+      if (matchedPhrase(text)) {
+        addFailure(element, text);
+      }
+    }
+
     return out;
   }
 
@@ -2055,8 +2159,26 @@
       if (R.paused) { await waitWhilePaused(); }
 
       const fail = newFailure();
+
       if (fail) {
-        return { ok: false, reason: 'Generation failed in Google Flow: "' + fail + '"' };
+        const normalizedFailure = norm(fail);
+
+        const unusualActivity =
+          normalizedFailure.indexOf(
+            'unusual activity'
+          ) !== -1 ||
+          normalizedFailure.indexOf(
+            'help center'
+          ) !== -1;
+
+        return {
+          ok: false,
+          hard: unusualActivity,
+          reason:
+            'Generation failed in Google Flow: "' +
+            fail +
+            '"'
+        };
       }
 
       const found = findNewGeneratedImages(before).filter(imageIsReady);
@@ -2393,8 +2515,18 @@
     const expected = Math.max(1, parseInt(R.settings.outputsPerPrompt, 10) || 1);
     const gen = await waitForGeneration(before, expected, promptNo);
     if (!gen.ok) {
-      if (gen.reason === 'stopped') return { ok: false, stopped: true };
-      return { ok: false, error: gen.reason };
+      if (gen.reason === 'stopped') {
+        return {
+          ok: false,
+          stopped: true
+        };
+      }
+
+      return {
+        ok: false,
+        hard: !!gen.hard,
+        error: gen.reason
+      };
     }
 
     // --- capture bytes ----------------------------------------------------
