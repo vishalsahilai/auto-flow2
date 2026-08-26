@@ -24,7 +24,8 @@ var AP_CONFIG = {
 
     // Least-privilege Drive scope: the extension can only see and touch files
     // that the extension itself created. It can never read your other files.
-    scopes: ['https://www.googleapis.com/auth/drive.file'],
+    scopes: ['https://www.googleapis.com/auth/drive'],
+    
 
     authEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
     revokeEndpoint: 'https://oauth2.googleapis.com/revoke',
@@ -41,17 +42,18 @@ var AP_CONFIG = {
     uploadBase: 'https://www.googleapis.com/upload/drive/v3',
     defaultFolderName: 'Auto Prompt',
     folderMime: 'application/vnd.google-apps.folder',
-
-    // {counter} = zero-padded number, {ext} = real file extension
     filenameTemplate: '{counter}.{ext}',
     counterPad: 3,
-
-    // Anything larger than this uses a resumable upload instead of multipart.
     resumableThresholdBytes: 4 * 1024 * 1024,
-
     uploadMaxAttempts: 5,
     uploadBackoffMs: [1000, 3000, 7000, 15000, 30000]
   },
+
+  slack: {
+    alertAfterAttempts: 5,
+    timeoutMs: 10000
+  },
+
 
   /* ------------------------------------------------------------------ */
   /*  MODELS                                                             */

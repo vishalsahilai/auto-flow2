@@ -18,7 +18,8 @@ importScripts(
   'utils/retry.js',
   'services/storage.js',
   'services/auth.js',
-  'services/drive.js'
+  'services/drive.js',
+  'services/slack.js'
 );
 
 'use strict';
@@ -259,15 +260,29 @@ const handlers = {
     return { auth: auth, folder: folder, folderLink: folder && folder.id ? APDrive.folderLink(folder.id) : null };
   },
 
-  async DRIVE_LIST_FOLDERS() {
-    return { folders: await APDrive.listFolders({}) };
+  async DRIVE_LIST_FOLDERS(msg) {
+    return {
+      folders: await APDrive.listFolders(
+        msg.parentId || 'root',
+        {}
+      )
+    };
   },
 
   async DRIVE_CREATE_FOLDER(msg) {
     const name = String(msg.name || '').trim();
     if (!name) throw new Error('Please type a folder name.');
-    const created = await APDrive.createFolder(name, msg.parentId || null, {});
-    await APDrive.selectFolder(created);
+      const created = await APDrive.createFolder(
+        name,
+        msg.parentId || null,
+        {}
+      );
+
+      created.path =
+        (msg.parentPath ? msg.parentPath + ' / ' : '') +
+        created.name;
+
+      await APDrive.selectFolder(created);
     APLog.success('Created the Google Drive folder "' + created.name + '" and selected it.');
     return { folder: created, folderLink: APDrive.folderLink(created.id) };
   },
@@ -292,6 +307,8 @@ const handlers = {
 
   async START(msg) {
     const settings = await APStore.getSettings();
+
+    await APSlack.resetRun();
 
     if (!APAuth.isConfigured()) {
       throw new Error('Google Drive is not configured yet. Paste your OAuth client ID into config.js, ' +
@@ -391,16 +408,55 @@ const handlers = {
   },
 
   async QUEUE_STATE(msg) {
-    toPanel({ action: 'QUEUE_STATE', state: msg.state });
+    toPanel({
+      action: 'QUEUE_STATE',
+      state: msg.state
+    });
+
+    try {
+      await APSlack.handleQueueState(msg.state);
+    } catch (error) {
+      APLog.warn(
+        'Slack alert could not be sent: ' +
+        error.message
+      );
+    }
+
     return { ok: true };
   },
 
   async RUN_FINISHED(msg, sender) {
-    toPanel({ action: 'RUN_FINISHED', state: msg.state });
-    /* Drop the debugger so the "started debugging this browser" banner does not
-     * stay up after the run ends. */
-    if (sender && sender.tab) await apDetach({ tabId: sender.tab.id });
+    toPanel({
+      action: 'RUN_FINISHED',
+      state: msg.state
+    });
+
+    try {
+      const folder = await APDrive.readFolder();
+
+      await APSlack.handleRunFinished(
+        msg.state,
+        folder
+      );
+    } catch (error) {
+      APLog.warn(
+        'Slack completion notification could not be sent: ' +
+        error.message
+      );
+    }
+
+    if (sender && sender.tab) {
+      await apDetach({
+        tabId: sender.tab.id
+      });
+    }
+
     return { ok: true };
+  },
+
+  async SLACK_TEST() {
+    await APSlack.test();
+    return { sent: true };
   },
 
   async HEARTBEAT() { return { ok: true, t: Date.now() }; },

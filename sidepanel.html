@@ -99,15 +99,47 @@
       <button class="btn ghost sm" id="driveDisconnectBtn">Disconnect</button>
     </div>
     <div class="label mt">Destination folder</div>
-    <div class="row wrap">
-      <select id="folderSelect" class="input grow"><option value="">Auto Prompt (default)</option></select>
-      <button class="btn ghost sm" id="folderRefreshBtn">Choose folder</button>
+
+    <div class="mono small" id="folderBrowserPath">
+      Browsing: My Drive
     </div>
+
     <div class="row wrap">
-      <input type="text" id="newFolderName" class="input grow" placeholder="New folder name">
-      <button class="btn ghost sm" id="folderCreateBtn">Create</button>
+      <select id="folderSelect" class="input grow">
+        <option value="">No subfolders</option>
+      </select>
+
+      <button class="btn ghost sm" id="folderOpenBtn">
+        Open
+      </button>
     </div>
-    <div class="mono small mt" id="currentFolder">Current folder: Auto Prompt</div>
+
+    <div class="row wrap">
+      <button class="btn ghost sm" id="folderUpBtn">
+        Back
+      </button>
+
+      <button class="btn primary sm" id="folderUseBtn">
+        Use this folder
+      </button>
+
+      <button class="btn ghost sm" id="folderRefreshBtn">
+        Refresh
+      </button>
+    </div>
+
+    <div class="row wrap">
+      <input
+        type="text"
+        id="newFolderName"
+        class="input grow"
+        placeholder="New folder name"
+      >
+
+      <button class="btn ghost sm" id="folderCreateBtn">
+        Create
+      </button>
+    </div>
     <div class="mono small" id="nextFileLabel">Next file: 001.jpg</div>
   </div>
 
@@ -202,6 +234,37 @@
     <label class="check"><input type="checkbox" id="pauseOnError" checked> Pause the queue on repeated errors</label>
     <label class="check"><input type="checkbox" id="preserveQueue" checked> Keep the queue across reloads</label>
     <label class="check"><input type="checkbox" id="debugMode"> Debug logging</label>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Slack notifications</div>
+
+    <div class="field">
+      <label for="slackWebhookUrl">
+        Incoming Webhook URL
+      </label>
+
+      <input
+        type="password"
+        id="slackWebhookUrl"
+        class="input"
+        placeholder="https://hooks.slack.com/services/…"
+      >
+    </div>
+
+    <label class="check">
+      <input type="checkbox" id="slackEnabled">
+      Enable Slack notifications
+    </label>
+
+    <div class="mono small mt">
+      Alerts are sent when generation reaches five failed attempts,
+      a Drive upload exhausts five attempts, and when the run completes.
+    </div>
+
+    <button class="btn ghost sm mt" id="slackTestBtn">
+      Send test notification
+    </button>
   </div>
 
   <div class="card">

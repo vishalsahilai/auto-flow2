@@ -23,7 +23,8 @@
     "https://flow.google.com/*",
     "https://*.googleusercontent.com/*",
     "https://www.googleapis.com/*",
-    "https://oauth2.googleapis.com/*"
+    "https://oauth2.googleapis.com/*",
+    "https://hooks.slack.com/*"
   ],
 
   "action": {

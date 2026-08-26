@@ -18,7 +18,13 @@
     logs: [],
     logFilter: 'all',
     queue: null,
-    refImage: null
+    refImage: null,
+    folderStack: [
+      {
+        id: 'root',
+        name: 'My Drive'
+      }
+    ]
   };
 
   /* ==================================================================== */
@@ -138,6 +144,8 @@
     $('pauseOnError').checked = s.pauseOnError !== false;
     $('preserveQueue').checked = s.preserveQueue !== false;
     $('debugMode').checked = !!s.debug;
+    $('slackEnabled').checked = !!s.slackEnabled;
+    $('slackWebhookUrl').value = s.slackWebhookUrl || '';
 
     const sel = $('maxRetries');
     if (!sel.options.length) {
@@ -161,7 +169,13 @@
    ['autoStart', 'autoStart', 'bool'],
    ['pauseOnError', 'pauseOnError', 'bool'],
    ['preserveQueue', 'preserveQueue', 'bool'],
-   ['debugMode', 'debug', 'bool']
+   ['debugMode', 'debug', 'bool'],
+   ['slackEnabled', 'slackEnabled', 'bool'],
+   ['slackWebhookUrl', 'slackWebhookUrl', 'str']
+
+
+
+
   ].forEach(function (def) {
     const el = $(def[0]);
     if (!el) return;
@@ -292,7 +306,16 @@
     $('driveConnectBtn').textContent = on ? 'Reconnect Google Drive' : 'Connect Google Drive';
     $('driveDisconnectBtn').disabled = !on;
 
-    const name = (folder && folder.name) || (CFG.drive && CFG.drive.defaultFolderName) || 'Auto Prompt';
+    const name =
+      (
+        folder &&
+        (folder.path || folder.name)
+      ) ||
+      (
+        CFG.drive &&
+        CFG.drive.defaultFolderName
+      ) ||
+      'Auto Prompt';
     const cur = $('currentFolder');
     cur.textContent = 'Current folder: ' + name;
     if (folderLink) {
@@ -315,50 +338,220 @@
     if (res) showDrive(res.auth, null, null);
   });
 
-  async function refreshFolders() {
-    const res = await bg('DRIVE_LIST_FOLDERS', {});
-    const sel = $('folderSelect');
-    const current = UI.env && UI.env.folder ? UI.env.folder.id : '';
-    sel.innerHTML = '';
-    const def = document.createElement('option');
-    def.value = '';
-    def.textContent = (CFG.drive && CFG.drive.defaultFolderName) || 'Auto Prompt';
-    sel.appendChild(def);
-    if (res.ok) {
-      (res.folders || []).forEach(function (f) {
-        const o = document.createElement('option');
-        o.value = f.id; o.textContent = f.name;
-        if (f.id === current) o.selected = true;
-        sel.appendChild(o);
-      });
-    }
+  function currentBrowserFolder() {
+    return UI.folderStack[
+      UI.folderStack.length - 1
+    ];
   }
 
-  $('folderRefreshBtn').addEventListener('click', function () {
-    refreshFolders();
-    banner('Folder list refreshed. Note: with the least-privilege drive.file scope only folders Auto Prompt created are visible.', 'info');
-  });
+  function renderFolderPath() {
+    const path = UI.folderStack.map(function (folder) {
+      return folder.name;
+    }).join(' / ');
 
-  $('folderSelect').addEventListener('change', async function () {
-    const id = this.value;
-    const name = this.options[this.selectedIndex].textContent;
-    const res = await call('DRIVE_SELECT_FOLDER',
-      id ? { folder: { id: id, name: name } } : { name: name });
-    if (res) { UI.env.folder = res.folder; showDrive(UI.env.auth, res.folder, res.folderLink); }
-  });
+    $('folderBrowserPath').textContent =
+      'Browsing: ' + path;
 
-  $('folderCreateBtn').addEventListener('click', async function () {
-    const name = $('newFolderName').value.trim();
-    if (!name) { banner('Type a name for the new folder first.', 'warn'); return; }
-    const res = await call('DRIVE_CREATE_FOLDER', { name: name }, 'Created "' + name + '".');
-    if (res) {
-      $('newFolderName').value = '';
-      UI.env.folder = res.folder;
-      showDrive(UI.env.auth, res.folder, res.folderLink);
-      refreshFolders();
+    $('folderUpBtn').disabled =
+      UI.folderStack.length <= 1;
+  }
+
+  async function refreshFolders() {
+    const currentFolder = currentBrowserFolder();
+
+    const response = await bg(
+      'DRIVE_LIST_FOLDERS',
+      {
+        parentId: currentFolder.id
+      }
+    );
+
+    const select = $('folderSelect');
+    select.innerHTML = '';
+
+    if (!response.ok) {
+      banner(response.error, 'error');
+      renderFolderPath();
+      return;
     }
-  });
 
+    const folders = response.folders || [];
+
+    if (!folders.length) {
+      const empty = document.createElement('option');
+
+      empty.value = '';
+      empty.textContent = 'No subfolders';
+
+      select.appendChild(empty);
+    }
+
+    folders.forEach(function (folder) {
+      const option = document.createElement('option');
+
+      option.value = folder.id;
+      option.textContent = folder.name;
+
+      select.appendChild(option);
+    });
+
+    renderFolderPath();
+  }
+
+  $('folderRefreshBtn').addEventListener(
+    'click',
+    function () {
+      refreshFolders();
+      banner('Folder list refreshed.', 'info');
+    }
+  );
+
+  $('folderOpenBtn').addEventListener(
+    'click',
+    async function () {
+      const select = $('folderSelect');
+
+      if (!select.value) {
+        banner(
+          'This folder has no subfolders to open.',
+          'warn'
+        );
+
+        return;
+      }
+
+      UI.folderStack.push({
+        id: select.value,
+        name: select.options[
+          select.selectedIndex
+        ].textContent
+      });
+
+      await refreshFolders();
+    }
+  );
+
+  $('folderUpBtn').addEventListener(
+    'click',
+    async function () {
+      if (UI.folderStack.length > 1) {
+        UI.folderStack.pop();
+      }
+
+      await refreshFolders();
+    }
+  );
+
+  $('folderUseBtn').addEventListener(
+    'click',
+    async function () {
+      const folder = currentBrowserFolder();
+
+      const path = UI.folderStack.map(
+        function (item) {
+          return item.name;
+        }
+      ).join(' / ');
+
+      const response = await call(
+        'DRIVE_SELECT_FOLDER',
+        {
+          folder: {
+            id: folder.id,
+            name: folder.name,
+            path: path
+          }
+        },
+        'Destination folder selected: ' + path
+      );
+
+      if (response) {
+        UI.env.folder = response.folder;
+
+        showDrive(
+          UI.env.auth,
+          response.folder,
+          response.folderLink
+        );
+      }
+    }
+  );
+
+  $('folderCreateBtn').addEventListener(
+    'click',
+    async function () {
+      const name = $('newFolderName').value.trim();
+
+      if (!name) {
+        banner(
+          'Type a name for the new folder first.',
+          'warn'
+        );
+
+        return;
+      }
+
+      const parent = currentBrowserFolder();
+
+      const parentPath = UI.folderStack.map(
+        function (item) {
+          return item.name;
+        }
+      ).join(' / ');
+
+      const response = await call(
+        'DRIVE_CREATE_FOLDER',
+        {
+          name: name,
+          parentId: parent.id,
+          parentPath: parentPath
+        },
+        'Created "' + name + '".'
+      );
+
+      if (response) {
+        $('newFolderName').value = '';
+        UI.env.folder = response.folder;
+
+        showDrive(
+          UI.env.auth,
+          response.folder,
+          response.folderLink
+        );
+
+        refreshFolders();
+      }
+    }
+  );
+
+
+  $('slackTestBtn').addEventListener(
+    'click',
+    async function () {
+      const webhookUrl =
+        $('slackWebhookUrl').value.trim();
+
+      if (!webhookUrl) {
+        banner(
+          'Paste your Slack Incoming Webhook URL first.',
+          'warn'
+        );
+
+        return;
+      }
+
+      await saveSettings({
+        slackWebhookUrl: webhookUrl,
+        slackEnabled: true
+      });
+
+      await call(
+        'SLACK_TEST',
+        {},
+        'Slack test notification sent.'
+      );
+    }
+  );
   /* ==================================================================== */
   /*  COUNTER                                                             */
   /* ==================================================================== */

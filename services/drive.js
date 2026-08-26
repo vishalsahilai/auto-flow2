@@ -136,14 +136,46 @@ var APDrive = (function () {
   }
 
   /** Folders this extension has created — the choices offered in the panel. */
-  async function listFolders(opts) {
-    const q = "mimeType='" + D.folderMime + "' and trashed=false";
-    const url = D.apiBase + '/files?q=' + encodeURIComponent(q) +
-                '&fields=files(id,name,createdTime)&pageSize=100&orderBy=createdTime desc';
-    const res = await authorizedFetch(url, { method: 'GET' }, opts);
-    if (!res.ok) throw await asError(res, 'Listing your Drive folders');
-    const j = await res.json();
-    return j.files || [];
+  async function listFolders(parentId, opts) {
+    const parent = String(
+      parentId || 'root'
+    ).replace(/'/g, "\\'");
+
+    const q =
+      "mimeType='" +
+      D.folderMime +
+      "' and '" +
+      parent +
+      "' in parents and trashed=false";
+
+    const url =
+      D.apiBase +
+      '/files?q=' +
+      encodeURIComponent(q) +
+      '&fields=files(id,name,parents,createdTime)' +
+      '&pageSize=1000' +
+      '&orderBy=name' +
+      '&spaces=drive' +
+      '&corpora=user' +
+      '&supportsAllDrives=true' +
+      '&includeItemsFromAllDrives=true';
+
+    const response = await authorizedFetch(
+      url,
+      { method: 'GET' },
+      opts
+    );
+
+    if (!response.ok) {
+      throw await asError(
+        response,
+        'Listing your Drive folders'
+      );
+    }
+
+    const data = await response.json();
+
+    return data.files || [];
   }
 
   /**
@@ -176,9 +208,19 @@ var APDrive = (function () {
   }
 
   async function selectFolder(folder) {
-    if (!folder || !folder.id) throw new Error('No folder was selected.');
-    await writeFolder({ id: folder.id, name: folder.name });
-    return folder;
+    if (!folder || !folder.id) {
+      throw new Error('No folder was selected.');
+    }
+
+    const selected = {
+      id: folder.id,
+      name: folder.name,
+      path: folder.path || folder.name
+    };
+
+    await writeFolder(selected);
+
+    return selected;
   }
 
   /** Change only the folder NAME to use next; the id is resolved on next upload. */

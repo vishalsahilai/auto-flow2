@@ -33,7 +33,9 @@ var APStore = (function () {
     /* If the chosen model is not in Flow's dropdown, keep whatever model Flow
      * already has instead of stopping the whole run. Never silent: it logs a
      * WARN, prints the real option labels, and marks the queue row. */
-    continueIfModelUnconfirmed: true
+    continueIfModelUnconfirmed: true,
+    slackEnabled: false,
+    slackWebhookUrl: ''
   };
 
   /* ---------------------------------------------------------------- */
