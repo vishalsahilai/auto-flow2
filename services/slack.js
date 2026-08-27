@@ -62,7 +62,8 @@ var APSlack = (function () {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          text: String(text)
+          text: '<!channel>\n' + String(text),
+          link_names: 1
         }),
         signal: controller.signal
       });
